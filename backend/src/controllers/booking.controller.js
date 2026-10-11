@@ -9,6 +9,7 @@ const {
   acceptBooking,
   rejectBooking,
   cancelBooking,
+  updateProviderJobStatus,
 } = require("../services/booking.service");
 
 const create = asyncHandler(async (req, res) => {
@@ -83,6 +84,22 @@ const cancel = asyncHandler(async (req, res) => {
   });
 });
 
+
+const updateJobStatus = asyncHandler(async (req, res) => {
+  const booking = await updateProviderJobStatus(
+    req.user,
+    req.validated.params.id,
+    req.validated.body.status
+  );
+
+  return successResponse({
+    res,
+    message: `Booking status updated to ${booking.status}`,
+    data: { booking },
+  });
+});
+
+
 module.exports = {
   create,
   list,
@@ -90,4 +107,5 @@ module.exports = {
   accept,
   reject,
   cancel,
+  updateJobStatus,
 };

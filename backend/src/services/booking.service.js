@@ -497,6 +497,82 @@ const cancelBooking = async (user, bookingId, reason) => {
   return populateBooking(booking._id);
 };
 
+
+const updateProviderJobStatus = async (
+  user,
+  bookingId,
+  nextStatus
+) => {
+  const booking = await getBookingForProvider(
+    user,
+    bookingId
+  );
+
+  const allowedProgressStatuses = [
+    BOOKING_STATUS.SCHEDULED,
+    BOOKING_STATUS.PROVIDER_ON_WAY,
+    BOOKING_STATUS.IN_PROGRESS,
+    BOOKING_STATUS.COMPLETED,
+  ];
+
+  if (!allowedProgressStatuses.includes(nextStatus)) {
+    throw new AppError(
+      "This status is not available through job progress updates",
+      400,
+      "INVALID_JOB_STATUS"
+    );
+  }
+
+  if (
+    !canTransitionBookingStatus(
+      booking.status,
+      nextStatus
+    )
+  ) {
+    throw new AppError(
+      `Cannot change booking from ${booking.status} to ${nextStatus}`,
+      409,
+      "INVALID_BOOKING_TRANSITION"
+    );
+  }
+
+  const updates = {
+    status: nextStatus,
+  };
+
+  if (nextStatus === BOOKING_STATUS.COMPLETED) {
+    updates.completedAt = new Date();
+  }
+
+  // Conditional update prevents overwriting a status that changed
+  // after this request originally loaded the booking.
+  const updatedBooking = await Booking.findOneAndUpdate(
+    {
+      _id: booking._id,
+      provider: booking.provider,
+      status: booking.status,
+    },
+    {
+      $set: updates,
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    }
+  );
+
+  if (!updatedBooking) {
+    throw new AppError(
+      "The booking status has changed. Refresh and try again",
+      409,
+      "BOOKING_STATUS_CONFLICT"
+    );
+  }
+
+  return populateBooking(updatedBooking._id);
+};
+
+
 module.exports = {
   createBooking,
   getBookingList,
@@ -504,4 +580,5 @@ module.exports = {
   acceptBooking,
   rejectBooking,
   cancelBooking,
+  updateProviderJobStatus,
 };

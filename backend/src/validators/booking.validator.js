@@ -97,10 +97,30 @@ const listBookingsSchema = z.object({
   }),
 });
 
+
+const updateJobStatusSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+  }),
+
+  body: z.object({
+    status: z.enum([
+      "SCHEDULED",
+      "PROVIDER_ON_WAY",
+      "IN_PROGRESS",
+      "COMPLETED",
+    ]),
+  }),
+
+  query: z.object({}),
+});
+
+
 module.exports = {
   createBookingSchema,
   bookingIdSchema,
   rejectBookingSchema,
   cancelBookingSchema,
   listBookingsSchema,
+  updateJobStatusSchema,
 };

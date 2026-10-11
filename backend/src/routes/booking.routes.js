@@ -35,6 +35,13 @@ router.get(
 
 router.post("/", authorize("CUSTOMER"), validate(createBookingSchema), create);
 
+router.patch(
+  "/:id/status",
+  authorize("PROVIDER"),
+  validate(updateJobStatusSchema),
+  updateJobStatus,
+);
+
 // Provider actions
 router.patch(
   "/:id/accept",
