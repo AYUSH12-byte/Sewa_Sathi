@@ -236,7 +236,7 @@ const bookingSchema = new mongoose.Schema(
 
       method: {
         type: String,
-        enum: ["CASH", "ESEWA", "KHALTI", "CARD", "ONLINE"],
+        enum: ["CASH", "ESEWA"],
         default: null,
       },
 
