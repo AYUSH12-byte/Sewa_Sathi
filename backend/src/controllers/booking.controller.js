@@ -1,7 +1,7 @@
 const asyncHandler = require("../utils/asyncHandler");
 
 const { createdResponse, successResponse } = require("../utils/apiResponse");
-
+const { getBookingHistory } = require("../services/bookingHistory.service");
 const {
   createBooking,
   getBookingList,
@@ -84,18 +84,31 @@ const cancel = asyncHandler(async (req, res) => {
   });
 });
 
-
 const updateJobStatus = asyncHandler(async (req, res) => {
   const booking = await updateProviderJobStatus(
     req.user,
     req.validated.params.id,
-    req.validated.body.status
+    req.validated.body.status,
   );
 
   return successResponse({
     res,
     message: `Booking status updated to ${booking.status}`,
     data: { booking },
+  });
+});
+
+
+const getHistory = asyncHandler(async (req, res) => {
+  const history = await getBookingHistory(
+    req.user,
+    req.validated.params.id
+  );
+
+  return successResponse({
+    res,
+    message: "Booking history retrieved successfully",
+    data: { history },
   });
 });
 
@@ -108,4 +121,5 @@ module.exports = {
   reject,
   cancel,
   updateJobStatus,
+  getHistory,
 };

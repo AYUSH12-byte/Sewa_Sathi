@@ -1,6 +1,10 @@
+
 const express = require("express");
 
-const { authenticate, authorize } = require("../middleware/auth");
+const {
+  authenticate,
+  authorize,
+} = require("../middleware/auth");
 
 const validate = require("../middleware/validate");
 
@@ -11,6 +15,8 @@ const {
   accept,
   reject,
   cancel,
+  updateJobStatus,
+  getHistory,
 } = require("../controllers/booking.controller");
 
 const {
@@ -19,58 +25,77 @@ const {
   rejectBookingSchema,
   cancelBookingSchema,
   listBookingsSchema,
+  updateJobStatusSchema,
 } = require("../validators/booking.validator");
 
 const router = express.Router();
 
+// All booking endpoints require authentication.
 router.use(authenticate);
 
-// Customer and provider booking endpoints
+// List bookings belonging to the authenticated customer or provider.
 router.get(
   "/",
   authorize("CUSTOMER", "PROVIDER"),
   validate(listBookingsSchema),
-  list,
+  list
 );
 
-router.post("/", authorize("CUSTOMER"), validate(createBookingSchema), create);
+// Only customers can create bookings.
+router.post(
+  "/",
+  authorize("CUSTOMER"),
+  validate(createBookingSchema),
+  create
+);
 
+// Provider job progress.
 router.patch(
   "/:id/status",
   authorize("PROVIDER"),
   validate(updateJobStatusSchema),
-  updateJobStatus,
+  updateJobStatus
 );
 
-// Provider actions
+// Booking status history.
+router.get(
+  "/:id/history",
+  authorize("CUSTOMER", "PROVIDER"),
+  validate(bookingIdSchema),
+  getHistory
+);
+
+// Provider accepts a booking.
 router.patch(
   "/:id/accept",
   authorize("PROVIDER"),
   validate(bookingIdSchema),
-  accept,
+  accept
 );
 
+// Provider rejects a booking.
 router.patch(
   "/:id/reject",
   authorize("PROVIDER"),
   validate(rejectBookingSchema),
-  reject,
+  reject
 );
 
-// Customer or assigned provider can cancel
+// Customer or assigned provider can cancel.
 router.patch(
   "/:id/cancel",
   authorize("CUSTOMER", "PROVIDER"),
   validate(cancelBookingSchema),
-  cancel,
+  cancel
 );
 
-// Keep the parameterized detail route after the named action routes
+// Get a single booking.
+// Keep this after the named routes for clarity.
 router.get(
   "/:id",
   authorize("CUSTOMER", "PROVIDER"),
   validate(bookingIdSchema),
-  getOne,
+  getOne
 );
 
 module.exports = router;
