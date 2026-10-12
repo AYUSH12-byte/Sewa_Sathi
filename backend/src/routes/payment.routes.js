@@ -29,6 +29,14 @@ router.post(
   create
 );
 
+
+router.post(
+  "/:id/verify",
+  authorize("CUSTOMER"),
+  validate(paymentIdSchema),
+  verifyEsewa
+);
+
 router.get(
   "/:id",
   authorize("CUSTOMER", "PROVIDER"),

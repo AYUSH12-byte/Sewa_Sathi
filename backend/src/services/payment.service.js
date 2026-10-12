@@ -2,6 +2,8 @@
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 
+const { generateEsewaSignature } = require("../utils/esewa");
+
 const {
   Booking,
   BOOKING_STATUS,
@@ -241,7 +243,228 @@ const getPaymentForUser = async (user, paymentId) => {
   return payment;
 };
 
+
+const buildEsewaCheckout = (payment) => {
+  if (payment.method !== "ESEWA") {
+    throw new AppError(
+      "This payment does not use eSewa",
+      400,
+      "INVALID_PAYMENT_METHOD"
+    );
+  }
+
+  if (!process.env.ESEWA_PRODUCT_CODE ||
+      !process.env.ESEWA_SECRET_KEY ||
+      !process.env.ESEWA_FORM_URL ||
+      !process.env.ESEWA_SUCCESS_URL ||
+      !process.env.ESEWA_FAILURE_URL) {
+    throw new AppError(
+      "eSewa payment configuration is incomplete",
+      500,
+      "ESEWA_CONFIGURATION_ERROR"
+    );
+  }
+
+  const totalAmount = Number(payment.amount).toFixed(2);
+  const transactionUuid = payment.paymentReference;
+  const productCode = process.env.ESEWA_PRODUCT_CODE;
+
+  const { signedFieldNames, signature } =
+    generateEsewaSignature({
+      totalAmount,
+      transactionUuid,
+      productCode,
+    });
+
+  return {
+    formUrl: process.env.ESEWA_FORM_URL,
+    fields: {
+      amount: totalAmount,
+      tax_amount: "0",
+      total_amount: totalAmount,
+      transaction_uuid: transactionUuid,
+      product_code: productCode,
+      product_service_charge: "0",
+      product_delivery_charge: "0",
+      success_url: process.env.ESEWA_SUCCESS_URL,
+      failure_url: process.env.ESEWA_FAILURE_URL,
+      signed_field_names: signedFieldNames,
+      signature,
+    },
+  };
+};
+
+
+const verifyEsewaPayment = async (user, paymentId) => {
+  const payment = await getPaymentForUser(user, paymentId);
+
+  if (payment.method !== "ESEWA") {
+    throw new AppError(
+      "Only eSewa payments can be verified through this endpoint",
+      400,
+      "INVALID_PAYMENT_METHOD"
+    );
+  }
+
+  if (payment.status === PAYMENT_STATUSES.PAID) {
+    return payment;
+  }
+
+  const query = new URLSearchParams({
+    product_code: process.env.ESEWA_PRODUCT_CODE,
+    total_amount: Number(payment.amount).toFixed(2),
+    transaction_uuid: payment.paymentReference,
+  });
+
+  const verificationUrl =
+    `${process.env.ESEWA_STATUS_URL}?${query.toString()}`;
+
+  const response = await fetch(verificationUrl, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!response.ok) {
+    throw new AppError(
+      "Could not verify payment with eSewa. Please retry",
+      502,
+      "ESEWA_VERIFICATION_UNAVAILABLE"
+    );
+  }
+
+  const result = await response.json();
+
+  const gatewayStatus = result.status;
+  const gatewayTransactionUuid =
+    result.transaction_uuid || result.transactionUuid;
+  const gatewayProductCode =
+    result.product_code || result.scd;
+  const gatewayAmount =
+    result.total_amount ?? result.totalAmount;
+
+  if (gatewayStatus !== "COMPLETE") {
+    if (["NOT_FOUND", "CANCELED", "CANCELLED"].includes(gatewayStatus)) {
+      payment.status = PAYMENT_STATUSES.FAILED;
+      payment.failureReason = `eSewa status: ${gatewayStatus}`;
+      await payment.save();
+
+      await Booking.updateOne(
+        {
+          _id: payment.booking,
+          status: BOOKING_STATUS.PAYMENT_PENDING,
+          "payment.transactionId": payment.paymentReference,
+        },
+        {
+          $set: { "payment.status": PAYMENT_STATUS.FAILED },
+        }
+      );
+    }
+
+    return payment;
+  }
+
+  if (
+    gatewayTransactionUuid !== payment.paymentReference ||
+    gatewayProductCode !== process.env.ESEWA_PRODUCT_CODE ||
+    !Number.isFinite(Number(gatewayAmount)) ||
+    Math.abs(Number(gatewayAmount) - payment.amount) > 0.001
+  ) {
+    throw new AppError(
+      "eSewa verification details do not match the payment",
+      409,
+      "ESEWA_PAYMENT_MISMATCH"
+    );
+  }
+
+  const paidAt = new Date();
+
+  const updatedPayment = await Payment.findOneAndUpdate(
+    {
+      _id: payment._id,
+      status: {
+        $in: [
+          PAYMENT_STATUSES.PENDING,
+          PAYMENT_STATUSES.PROCESSING,
+        ],
+      },
+    },
+    {
+      $set: {
+        status: PAYMENT_STATUSES.PAID,
+        gatewayTransactionId:
+          result.ref_id || result.refId || null,
+        gatewayReference:
+          result.ref_id || result.refId || null,
+        paidAt,
+        failureReason: null,
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    }
+  );
+
+  if (!updatedPayment) {
+    const latestPayment = await Payment.findById(payment._id);
+
+    if (latestPayment?.status === PAYMENT_STATUSES.PAID) {
+      return latestPayment;
+    }
+
+    throw new AppError(
+      "Payment status changed during verification",
+      409,
+      "PAYMENT_STATUS_CONFLICT"
+    );
+  }
+
+  const updatedBooking = await Booking.findOneAndUpdate(
+    {
+      _id: payment.booking,
+      status: BOOKING_STATUS.PAYMENT_PENDING,
+      "payment.transactionId": payment.paymentReference,
+      "payment.status": {
+        $in: [
+          PAYMENT_STATUS.PENDING,
+          PAYMENT_STATUS.PROCESSING,
+        ],
+      },
+    },
+    {
+      $set: {
+        status: BOOKING_STATUS.PAID,
+        "payment.status": PAYMENT_STATUS.PAID,
+        "payment.transactionId":
+          updatedPayment.gatewayTransactionId ||
+          payment.paymentReference,
+        "payment.paidAt": paidAt,
+      },
+    },
+    {
+      returnDocument: "after",
+      runValidators: true,
+    }
+  );
+
+  if (!updatedBooking) {
+    // Keep the payment record for reconciliation instead of
+    // claiming that the booking update also succeeded.
+    throw new AppError(
+      "Payment was verified but the booking could not be updated. Reconciliation is required",
+      409,
+      "PAYMENT_BOOKING_RECONCILIATION_REQUIRED"
+    );
+  }
+
+  return updatedPayment;
+};
+
+
 module.exports = {
   createPayment,
   getPaymentForUser,
+  buildEsewaCheckout,
+  verifyEsewaPayment,
 };
