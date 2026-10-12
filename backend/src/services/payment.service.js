@@ -1,18 +1,92 @@
 
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 
-const { Booking, BOOKING_STATUS, PAYMENT_STATUS } =
-  require("../models/Booking");
+const {
+  Booking,
+  BOOKING_STATUS,
+  PAYMENT_STATUS,
+} = require("../models/Booking");
+
 const {
   Payment,
   PAYMENT_STATUSES,
-} = require("../../models/Payment");
+} = require("../models/Payment");
+
 const { Provider } = require("../models/Provider");
-const { USER_ROLES } = require("../models/User");
+const { USER_ROLES, USER_STATUS } = require("../models/User");
 const AppError = require("../utils/AppError");
 
+/**
+ * Resolve and validate the authenticated user's MongoDB ID.
+ */
+const getAuthenticatedUserId = (user) => {
+  const userId = user?.id || user?._id || user?.sub;
+
+  if (!userId || !mongoose.isValidObjectId(userId)) {
+    throw new AppError(
+      "Invalid authenticated user",
+      401,
+      "INVALID_AUTHENTICATED_USER"
+    );
+  }
+
+  return userId;
+};
+
+/**
+ * Create a unique internal payment reference.
+ * This is not an eSewa transaction ID.
+ */
+const generatePaymentReference = () => {
+  return `SFP-${crypto.randomBytes(12).toString("hex").toUpperCase()}`;
+};
+
+/**
+ * Start a payment attempt for a completed service.
+ *
+ * CASH:
+ *   Creates a pending cash payment record.
+ *
+ * ESEWA:
+ *   Creates a processing payment record.
+ *   Actual checkout and server-side verification must be
+ *   implemented separately before marking it as paid.
+ */
 const createPayment = async (user, bookingId, method) => {
-  const userId = user.id || user._id || user.sub;
+  const userId = getAuthenticatedUserId(user);
+
+  if (!["CASH", "ESEWA"].includes(method)) {
+    throw new AppError(
+      "Unsupported payment method. Use CASH or ESEWA",
+      400,
+      "INVALID_PAYMENT_METHOD"
+    );
+  }
+
+  if (user.role !== USER_ROLES.CUSTOMER) {
+    throw new AppError(
+      "Only customers can initiate payments",
+      403,
+      "PAYMENT_INITIATION_DENIED"
+    );
+  }
+
+  if (user.status && user.status !== USER_STATUS.ACTIVE) {
+    throw new AppError(
+      "Your account is not active",
+      403,
+      "ACCOUNT_INACTIVE"
+    );
+  }
+
+  if (!mongoose.isValidObjectId(bookingId)) {
+    throw new AppError(
+      "Invalid booking ID",
+      400,
+      "INVALID_ID"
+    );
+  }
 
   const booking = await Booking.findOne({
     _id: bookingId,
@@ -29,15 +103,13 @@ const createPayment = async (user, bookingId, method) => {
 
   if (booking.status !== BOOKING_STATUS.PAYMENT_PENDING) {
     throw new AppError(
-      "Payment is only available after service completion",
+      "Payment is only available when the booking is awaiting payment",
       409,
       "BOOKING_NOT_READY_FOR_PAYMENT"
     );
   }
 
-  if (
-    booking.payment.status === PAYMENT_STATUS.PAID
-  ) {
+  if (booking.payment?.status === PAYMENT_STATUS.PAID) {
     throw new AppError(
       "This booking has already been paid",
       409,
@@ -45,7 +117,7 @@ const createPayment = async (user, bookingId, method) => {
     );
   }
 
-  const existingProcessingPayment = await Payment.findOne({
+  const existingPayment = await Payment.findOne({
     booking: booking._id,
     status: {
       $in: [
@@ -53,10 +125,10 @@ const createPayment = async (user, bookingId, method) => {
         PAYMENT_STATUSES.PROCESSING,
       ],
     },
-  });
+  }).sort({ createdAt: -1 });
 
-  if (existingProcessingPayment) {
-    if (existingProcessingPayment.method !== method) {
+  if (existingPayment) {
+    if (existingPayment.method !== method) {
       throw new AppError(
         "Another payment attempt is already pending",
         409,
@@ -64,11 +136,16 @@ const createPayment = async (user, bookingId, method) => {
       );
     }
 
-    return existingProcessingPayment;
+    // Return the existing attempt rather than creating duplicates.
+    return existingPayment;
   }
 
-  const paymentReference =
-    `SFP-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+  const paymentReference = generatePaymentReference();
+
+  const paymentStatus =
+    method === "ESEWA"
+      ? PAYMENT_STATUSES.PROCESSING
+      : PAYMENT_STATUSES.PENDING;
 
   const payment = await Payment.create({
     booking: booking._id,
@@ -76,10 +153,7 @@ const createPayment = async (user, bookingId, method) => {
     provider: booking.provider,
     paymentReference,
     method,
-    status:
-      method === "ESEWA"
-        ? PAYMENT_STATUSES.PROCESSING
-        : PAYMENT_STATUSES.PENDING,
+    status: paymentStatus,
     amount: booking.pricing.totalAmount,
     currency: "NPR",
   });
@@ -97,10 +171,25 @@ const createPayment = async (user, bookingId, method) => {
   return payment;
 };
 
+/**
+ * Retrieve a payment only when the authenticated user is
+ * the customer who initiated it or the provider assigned
+ * to the associated booking.
+ */
 const getPaymentForUser = async (user, paymentId) => {
-  const userId = user.id || user._id || user.sub;
+  const userId = getAuthenticatedUserId(user);
 
-  let query = { _id: paymentId };
+  if (!mongoose.isValidObjectId(paymentId)) {
+    throw new AppError(
+      "Invalid payment ID",
+      400,
+      "INVALID_ID"
+    );
+  }
+
+  const query = {
+    _id: paymentId,
+  };
 
   if (user.role === USER_ROLES.CUSTOMER) {
     query.customer = userId;
@@ -126,10 +215,20 @@ const getPaymentForUser = async (user, paymentId) => {
     );
   }
 
-  const payment = await Payment.findOne(query).populate(
-    "booking",
-    "bookingNumber status scheduledDate pricing"
-  );
+  const payment = await Payment.findOne(query)
+    .populate(
+      "booking",
+      "bookingNumber status scheduledDate pricing payment"
+    )
+    .populate(
+      "customer",
+      "firstName lastName"
+    )
+    .populate(
+      "provider",
+      "businessName verificationStatus"
+    )
+    .lean();
 
   if (!payment) {
     throw new AppError(

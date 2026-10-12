@@ -1,4 +1,5 @@
 const asyncHandler = require("../utils/asyncHandler");
+
 const { createdResponse, successResponse } = require("../utils/apiResponse");
 
 const {
@@ -17,7 +18,7 @@ const create = asyncHandler(async (req, res) => {
     res,
     message:
       payment.method === "ESEWA"
-        ? "Payment record created. Gateway checkout integration is the next step."
+        ? "eSewa payment initialized. Gateway checkout is not yet configured."
         : "Cash payment record created successfully",
     data: { payment },
   });

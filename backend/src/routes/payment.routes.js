@@ -1,10 +1,17 @@
+
 const express = require("express");
 
-const { authenticate, authorize } = require("../middleware/auth");
+const {
+  authenticate,
+  authorize,
+} = require("../middleware/auth");
 
 const validate = require("../middleware/validate");
 
-const { create, getOne } = require("../controllers/payment.controller");
+const {
+  create,
+  getOne,
+} = require("../controllers/payment.controller");
 
 const {
   bookingPaymentSchema,
@@ -19,14 +26,14 @@ router.post(
   "/bookings/:bookingId",
   authorize("CUSTOMER"),
   validate(bookingPaymentSchema),
-  create,
+  create
 );
 
 router.get(
   "/:id",
   authorize("CUSTOMER", "PROVIDER"),
   validate(paymentIdSchema),
-  getOne,
+  getOne
 );
 
 module.exports = router;
