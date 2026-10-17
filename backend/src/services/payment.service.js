@@ -50,6 +50,30 @@ const generatePaymentReference = () => {
   return `SFP-${crypto.randomBytes(12).toString("hex").toUpperCase()}`;
 };
 
+const normalizeEsewaStatus = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim().toUpperCase();
+};
+
+const getEsewaField = (payload, ...keys) => {
+  for (const key of keys) {
+    if (
+      payload &&
+      Object.prototype.hasOwnProperty.call(payload, key) &&
+      payload[key] !== undefined &&
+      payload[key] !== null &&
+      String(payload[key]).trim() !== ""
+    ) {
+      return payload[key];
+    }
+  }
+
+  return undefined;
+};
+
 /**
  * Start a payment attempt for a completed service.
  *
@@ -426,13 +450,23 @@ const verifyEsewaPayment = async (user, paymentId) => {
   const verificationUrl =
     `${process.env.ESEWA_STATUS_URL}?${query.toString()}`;
 
-  const response = await fetch(verificationUrl, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-    },
-    signal: AbortSignal.timeout(10000),
-  });
+  let response;
+
+  try {
+    response = await fetch(verificationUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    throw new AppError(
+      "Could not verify payment with eSewa. Please retry",
+      502,
+      "ESEWA_VERIFICATION_UNAVAILABLE"
+    );
+  }
 
   if (!response.ok) {
     throw new AppError(
@@ -442,18 +476,45 @@ const verifyEsewaPayment = async (user, paymentId) => {
     );
   }
 
-  const result = await response.json();
+  let result;
 
-  const gatewayStatus = result.status;
+  try {
+    result = await response.json();
+  } catch (error) {
+    throw new AppError(
+      "eSewa returned an invalid verification payload",
+      502,
+      "ESEWA_VERIFICATION_INVALID_RESPONSE"
+    );
+  }
 
-  const gatewayTransactionUuid =
-    result.transaction_uuid || result.transactionUuid;
+  const gatewayStatus = normalizeEsewaStatus(
+    getEsewaField(result, "status", "transaction_status")
+  );
 
-  const gatewayProductCode =
-    result.product_code || result.scd;
+  const gatewayTransactionUuid = getEsewaField(
+    result,
+    "transaction_uuid",
+    "transactionUuid",
+    "transactionId",
+    "uuid"
+  );
 
-  const gatewayAmount =
-    result.total_amount ?? result.totalAmount;
+  const gatewayProductCode = getEsewaField(
+    result,
+    "product_code",
+    "productCode",
+    "scd",
+    "merchant_code"
+  );
+
+  const gatewayAmount = getEsewaField(
+    result,
+    "total_amount",
+    "totalAmount",
+    "amount",
+    "amount_paid"
+  );
 
   // Handle unsuccessful gateway responses without marking a
   // payment as successful.
@@ -522,12 +583,14 @@ const verifyEsewaPayment = async (user, paymentId) => {
     return payment;
   }
 
+  const normalizedGatewayAmount = Number(gatewayAmount);
+
   // Verify the transaction UUID, merchant product code and amount.
   if (
     gatewayTransactionUuid !== payment.paymentReference ||
     gatewayProductCode !== process.env.ESEWA_PRODUCT_CODE ||
-    !Number.isFinite(Number(gatewayAmount)) ||
-    Math.abs(Number(gatewayAmount) - Number(payment.amount)) > 0.001
+    !Number.isFinite(normalizedGatewayAmount) ||
+    Math.abs(normalizedGatewayAmount - Number(payment.amount)) > 0.001
   ) {
     throw new AppError(
       "eSewa verification details do not match the payment",

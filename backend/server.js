@@ -2,20 +2,18 @@ require("dotenv").config();
 
 const app = require("./src/app");
 const connectDB = require("./src/config/db");
-
-const PORT = process.env.PORT || 7000;
+const { validateEnvironment } = require("./src/config/env");
 
 const startServer = async () => {
   try {
+    const config = validateEnvironment();
     await connectDB();
 
+    const PORT = config.port;
     const server = app.listen(PORT, () => {
       console.log(`🚀 Service Finder API running on port ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🌍 Environment: ${config.nodeEnv}`);
     });
-
-
-    // Graceful Shutdown
 
     const shutdownServer = async (signal) => {
       console.log(`\n${signal} received. Shutting down server...`);
@@ -29,10 +27,7 @@ const startServer = async () => {
 
           process.exit(0);
         } catch (error) {
-          console.error(
-            "❌ Error while shutting down:",
-            error.message
-          );
+          console.error("❌ Error while shutting down:", error.message);
 
           process.exit(1);
         }

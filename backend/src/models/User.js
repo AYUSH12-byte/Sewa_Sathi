@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { hashPassword } = require("../utils/password");
 
 const USER_ROLES = {
   CUSTOMER: "CUSTOMER",
@@ -111,6 +112,14 @@ userSchema.index({
 
 userSchema.virtual("fullName").get(function () {
   return `${this.firstName} ${this.lastName}`;
+});
+
+userSchema.pre("save", async function () {
+  if (!this.isModified("password")) {
+    return;
+  }
+
+  this.password = await hashPassword(this.password);
 });
 
 userSchema.set("toJSON", {

@@ -86,13 +86,15 @@ const providerSchema = new mongoose.Schema(
               return true;
             }
 
-            if (value.length !== 2) {
+            if (!Array.isArray(value) || value.length !== 2) {
               return false;
             }
 
             const [longitude, latitude] = value;
 
             return (
+              Number.isFinite(longitude) &&
+              Number.isFinite(latitude) &&
               longitude >= -180 &&
               longitude <= 180 &&
               latitude >= -90 &&
@@ -344,6 +346,66 @@ const providerSchema = new mongoose.Schema(
     versionKey: false,
   },
 );
+
+providerSchema.pre("validate", function (next) {
+  if (Array.isArray(this.serviceAreas)) {
+    this.serviceAreas = this.serviceAreas
+      .map((area) =>
+        typeof area === "string" ? area.trim() : area,
+      )
+      .filter(
+        (area) => typeof area === "string" && area.length > 0,
+      );
+  }
+
+  if (
+    this.location &&
+    typeof this.location === "object" &&
+    !Array.isArray(this.location)
+  ) {
+    const { type, coordinates } = this.location;
+
+    if (type && type !== "Point") {
+      this.invalidate(
+        "location.type",
+        "Provider location type must be Point",
+      );
+    }
+
+    if (
+      coordinates !== undefined &&
+      coordinates !== null
+    ) {
+      if (!Array.isArray(coordinates) || coordinates.length !== 2) {
+        this.invalidate(
+          "location.coordinates",
+          "Location coordinates must be [longitude, latitude]",
+        );
+      } else {
+        const [longitude, latitude] = coordinates.map(Number);
+
+        if (
+          !Number.isFinite(longitude) ||
+          !Number.isFinite(latitude) ||
+          longitude < -180 ||
+          longitude > 180 ||
+          latitude < -90 ||
+          latitude > 90
+        ) {
+          this.invalidate(
+            "location.coordinates",
+            "Location coordinates must be [longitude, latitude] within valid ranges",
+          );
+        }
+
+        this.location.type = "Point";
+        this.location.coordinates = [longitude, latitude];
+      }
+    }
+  }
+
+  next();
+});
 
 // Indexes
 

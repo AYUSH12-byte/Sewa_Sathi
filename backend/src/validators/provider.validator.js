@@ -100,14 +100,29 @@ const locationSchema = z
         {
           message: "Invalid longitude or latitude",
         }
+      )
+      .refine(
+        ([longitude, latitude]) =>
+          Number.isFinite(longitude) && Number.isFinite(latitude),
+        {
+          message: "Longitude and latitude must be numeric",
+        }
       ),
 
     address: z
       .string()
       .trim()
       .max(300)
+      .nullish()
       .optional(),
   })
+  .refine(
+    (value) => !value || Array.isArray(value.coordinates),
+    {
+      message: "Location coordinates are required when location is provided",
+      path: ["coordinates"],
+    }
+  )
   .optional();
 
 // Location filter validator

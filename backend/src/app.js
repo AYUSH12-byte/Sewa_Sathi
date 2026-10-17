@@ -74,15 +74,27 @@ const apiLimiter = rateLimit({
 
 app.use("/api", apiLimiter);
 
-// Health check
+// Health and readiness checks
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
-
     message: "Service Finder API is running",
-
     environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  });
+});
 
+app.get("/api/ready", (req, res) => {
+  const mongoose = require("mongoose");
+  const ready = mongoose.connection.readyState === 1;
+
+  res.status(ready ? 200 : 503).json({
+    success: ready,
+    message: ready
+      ? "Application is ready to serve traffic"
+      : "Database connection is not ready",
+    ready,
+    dbState: mongoose.connection.readyState,
     timestamp: new Date().toISOString(),
   });
 });
