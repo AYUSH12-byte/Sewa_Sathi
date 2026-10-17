@@ -21,6 +21,7 @@ const paymentRoutes = require("./routes/payment.routes");
 const reviewRoutes = require("./routes/review.routes");
 const complaintRoutes = require("./routes/complaint.routes");
 const adminRoutes = require("./routes/admin.routes");
+const chatRoutes = require("./routes/chat.routes");
 
 
 const app = express();
@@ -115,6 +116,7 @@ app.use("/api/v1/payments", paymentRoutes);
 app.use("/api/v1/reviews", reviewRoutes);
 app.use("/api/v1/complaints", complaintRoutes);
 app.use("/api/v1/admin", adminRoutes);
+app.use("/api/v1/chat", chatRoutes);
 
 // 404 handler
 app.use(notFound);
