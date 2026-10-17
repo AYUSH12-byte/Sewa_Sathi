@@ -347,7 +347,7 @@ const providerSchema = new mongoose.Schema(
   },
 );
 
-providerSchema.pre("validate", function (next) {
+providerSchema.pre("validate", function () {
   if (Array.isArray(this.serviceAreas)) {
     this.serviceAreas = this.serviceAreas
       .map((area) =>
@@ -403,8 +403,6 @@ providerSchema.pre("validate", function (next) {
       }
     }
   }
-
-  next();
 });
 
 // Indexes
