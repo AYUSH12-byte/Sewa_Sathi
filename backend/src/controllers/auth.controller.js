@@ -98,9 +98,35 @@ const logout = asyncHandler(async (req, res) => {
 });
 
 
+const getMe = asyncHandler(async (req, res) => {
+  return successResponse({
+    res,
+    message: "Current user retrieved successfully",
+    data: {
+      user: {
+        id: req.user._id,
+        firstName: req.user.firstName,
+        lastName: req.user.lastName,
+        fullName: req.user.fullName,
+        email: req.user.email,
+        phone: req.user.phone,
+        role: req.user.role,
+        status: req.user.status,
+        emailVerified: req.user.emailVerified,
+        phoneVerified: req.user.phoneVerified,
+        profileImage: req.user.profileImage,
+        lastLoginAt: req.user.lastLoginAt,
+        createdAt: req.user.createdAt,
+        updatedAt: req.user.updatedAt,
+      },
+    },
+  });
+});
+
 module.exports = {
   register,
   login,
   refresh,
   logout,
+  getMe,
 };

@@ -11,6 +11,7 @@ const {
   getPaymentForUser,
   buildEsewaCheckout,
   verifyEsewaPayment,
+  confirmCashPayment,
 } = require("../services/payment.service");
 
 /**
@@ -93,8 +94,29 @@ const verifyEsewa = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * Confirm receipt of a cash payment.
+ *
+ * Can be performed by the assigned provider or an administrator.
+ */
+const confirmCash = asyncHandler(async (req, res) => {
+  const payment = await confirmCashPayment(
+    req.user,
+    req.validated.params.id
+  );
+
+  return successResponse({
+    res,
+    message: "Cash payment confirmed successfully.",
+    data: {
+      payment,
+    },
+  });
+});
+
 module.exports = {
   create,
   getOne,
   verifyEsewa,
+  confirmCash,
 };

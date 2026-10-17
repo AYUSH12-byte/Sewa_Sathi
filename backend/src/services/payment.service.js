@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const mongoose = require("mongoose");
 
 const { generateEsewaSignature } = require("../utils/esewa");
+const { recordBookingStatusChange } = require("./bookingHistory.service");
 
 const {
   Booking,
@@ -739,9 +740,131 @@ const verifyEsewaPayment = async (user, paymentId) => {
   return updatedPayment;
 };
 
+
+/**
+ * Confirm that a cash payment has been received in full.
+ *
+ * Can be performed by:
+ * - The assigned provider (after customer hands cash on completion)
+ * - An administrator (manual reconciliation or override)
+ */
+const confirmCashPayment = async (user, paymentId) => {
+  const userId = getAuthenticatedUserId(user);
+
+  if (!mongoose.isValidObjectId(paymentId)) {
+    throw new AppError("Invalid payment ID", 400, "INVALID_ID");
+  }
+
+  const payment = await Payment.findById(paymentId);
+
+  if (!payment) {
+    throw new AppError("Payment not found", 404, "PAYMENT_NOT_FOUND");
+  }
+
+  if (payment.method !== "CASH") {
+    throw new AppError(
+      "Only cash payments can be confirmed with this action",
+      400,
+      "INVALID_PAYMENT_METHOD"
+    );
+  }
+
+  // Role authorization check
+  if (user.role === USER_ROLES.PROVIDER) {
+    const provider = await Provider.findOne({ user: userId }).select("_id");
+    if (!provider || String(payment.provider) !== String(provider._id)) {
+      throw new AppError(
+        "You can only confirm cash payments for your own bookings",
+        403,
+        "PAYMENT_CONFIRMATION_DENIED"
+      );
+    }
+  } else if (user.role !== USER_ROLES.ADMIN) {
+    throw new AppError(
+      "Only assigned providers or administrators can confirm cash payments",
+      403,
+      "PAYMENT_CONFIRMATION_DENIED"
+    );
+  }
+
+  // Idempotency: if already paid, return existing payment
+  if (payment.status === PAYMENT_STATUSES.PAID) {
+    return payment;
+  }
+
+  if (payment.status !== PAYMENT_STATUSES.PENDING) {
+    throw new AppError(
+      `Cannot confirm cash payment in status ${payment.status}`,
+      400,
+      "INVALID_PAYMENT_STATUS"
+    );
+  }
+
+  const paidAt = new Date();
+
+  // Atomically update payment to PAID
+  const updatedPayment = await Payment.findOneAndUpdate(
+    {
+      _id: payment._id,
+      status: PAYMENT_STATUSES.PENDING,
+    },
+    {
+      $set: {
+        status: PAYMENT_STATUSES.PAID,
+        paidAt,
+        gatewayTransactionId: `CASH-${payment.paymentReference}`,
+        failureReason: null,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  if (!updatedPayment) {
+    const latestPayment = await Payment.findById(payment._id);
+    if (latestPayment?.status === PAYMENT_STATUSES.PAID) {
+      return latestPayment;
+    }
+    throw new AppError(
+      "Payment status changed during confirmation",
+      409,
+      "PAYMENT_STATUS_CONFLICT"
+    );
+  }
+
+  // Update associated booking
+  const booking = await Booking.findById(payment.booking);
+  if (booking) {
+    const previousStatus = booking.status;
+
+    booking.status = BOOKING_STATUS.PAID;
+    booking.payment = booking.payment || {};
+    booking.payment.status = PAYMENT_STATUS.PAID;
+    booking.payment.method = "CASH";
+    booking.payment.transactionId = updatedPayment.gatewayTransactionId;
+    booking.payment.paidAt = paidAt;
+
+    await booking.save();
+
+    await recordBookingStatusChange({
+      bookingId: booking._id,
+      previousStatus,
+      newStatus: BOOKING_STATUS.PAID,
+      userId,
+      actorRole: user.role,
+      reason: `Cash payment confirmed by ${user.role.toLowerCase()}`,
+    });
+  }
+
+  return updatedPayment;
+};
+
 module.exports = {
   createPayment,
   getPaymentForUser,
   buildEsewaCheckout,
   verifyEsewaPayment,
+  confirmCashPayment,
 };

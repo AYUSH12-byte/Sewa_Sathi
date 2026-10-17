@@ -7,6 +7,7 @@ const {
   create,
   getOne,
   verifyEsewa,
+  confirmCash,
 } = require("../controllers/payment.controller");
 
 const validate = require("../middleware/validate");
@@ -34,6 +35,14 @@ router.post(
   authorize("CUSTOMER"),
   validate(paymentIdSchema),
   verifyEsewa
+);
+
+// Confirm cash payment received (Provider or Admin)
+router.post(
+  "/:id/confirm-cash",
+  authorize("PROVIDER", "ADMIN"),
+  validate(paymentIdSchema),
+  confirmCash
 );
 
 // Get payment details.
