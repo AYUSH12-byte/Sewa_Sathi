@@ -1,11 +1,20 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
-// In development: Android emulator uses 10.0.2.2, iOS / Web uses localhost
+// Dynamically determine the backend IP address:
+// 1. If EXPO_PUBLIC_API_URL is set, use it.
+// 2. If running via Expo Go on physical device, extract computer LAN IP from hostUri.
+// 3. Fallback to current Wi-Fi IP (192.168.18.121:7000).
 const getDefaultBaseUrl = () => {
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoGo?.debuggerHost;
+  if (hostUri) {
+    const ip = hostUri.split(":")[0];
+    return `http://${ip}:7000/api/v1`;
+  }
   if (Platform.OS === "android") {
-    return "http://10.0.2.2:7000/api/v1";
+    return "http://192.168.18.121:7000/api/v1";
   }
   return "http://localhost:7000/api/v1";
 };

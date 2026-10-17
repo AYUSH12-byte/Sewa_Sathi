@@ -38,8 +38,12 @@ app.use(
 // CORS
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
-
+    origin: (origin, callback) => {
+      // Allow mobile apps, curl, and tools with no origin header
+      if (!origin) return callback(null, true);
+      // Allow all origins in local network & dev
+      return callback(null, true);
+    },
     credentials: true,
   }),
 );
