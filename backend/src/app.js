@@ -1,3 +1,4 @@
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -27,8 +28,12 @@ const notificationRoutes = require("./routes/notification.routes");
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Security middleware (relaxed CSP allows modern admin dashboard assets)
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+  })
+);
 
 // CORS
 app.use(
@@ -119,6 +124,13 @@ app.use("/api/v1/complaints", complaintRoutes);
 app.use("/api/v1/admin", adminRoutes);
 app.use("/api/v1/chat", chatRoutes);
 app.use("/api/v1/notifications", notificationRoutes);
+
+// Static assets & Admin Web Portal
+app.use(express.static(path.join(__dirname, "../public")));
+
+app.get("/admin", (req, res) => {
+  res.sendFile(path.join(__dirname, "../public/admin/index.html"));
+});
 
 // 404 handler
 app.use(notFound);
