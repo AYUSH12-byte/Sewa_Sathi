@@ -18,6 +18,7 @@ const adminProviderRoutes = require("./routes/adminProvider.routes");
 const publicProviderRoutes = require("./routes/publicProvider.routes");
 const bookingRoutes = require("./routes/booking.routes");
 const paymentRoutes = require("./routes/payment.routes");
+const reviewRoutes = require("./routes/review.routes");
 
 
 const app = express();
@@ -109,6 +110,7 @@ app.use("/api/v1/admin/providers", adminProviderRoutes);
 app.use("/api/v1/discovery/providers", publicProviderRoutes);
 app.use("/api/v1/bookings", bookingRoutes); 
 app.use("/api/v1/payments", paymentRoutes);
+app.use("/api/v1/reviews", reviewRoutes);
 
 // 404 handler
 app.use(notFound);
