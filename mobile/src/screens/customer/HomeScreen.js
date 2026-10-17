@@ -33,10 +33,21 @@ export const HomeScreen = ({ navigation }) => {
 
       if (catRes.data?.categories) {
         setCategories(catRes.data.categories);
+      } else if (Array.isArray(catRes.data)) {
+        setCategories(catRes.data);
       }
-      if (provRes.data?.providers) {
-        setProviders(provRes.data.providers);
-      }
+
+      const rawProviders = Array.isArray(provRes.data)
+        ? provRes.data
+        : (provRes.data?.providers || provRes.data?.data || []);
+
+      const normalizedProviders = rawProviders.map((item) =>
+        item.provider
+          ? { ...item.provider, matchScore: item.matchScore, services: item.services }
+          : item
+      );
+
+      setProviders(normalizedProviders);
     } catch (e) {
       console.warn("Failed to load home data", e);
     } finally {

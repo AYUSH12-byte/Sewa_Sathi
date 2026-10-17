@@ -30,9 +30,17 @@ export const ProvidersListScreen = ({ route, navigation }) => {
       if (query.trim()) params.search = query.trim();
 
       const res = await searchProvidersApi(params);
-      if (res.data?.providers) {
-        setProviders(res.data.providers);
-      }
+      const rawProviders = Array.isArray(res.data)
+        ? res.data
+        : (res.data?.providers || res.data?.data || []);
+
+      const normalized = rawProviders.map((item) =>
+        item.provider
+          ? { ...item.provider, matchScore: item.matchScore, services: item.services }
+          : item
+      );
+
+      setProviders(normalized);
     } catch (e) {
       console.warn("Failed to fetch providers", e);
     } finally {
